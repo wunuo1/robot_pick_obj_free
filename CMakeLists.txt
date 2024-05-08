@@ -34,6 +34,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(ai_msgs REQUIRED)
+find_package(robot_pick_obj_msg REQUIRED)
 
 include_directories(include
   /usr/include
@@ -50,6 +51,7 @@ ament_target_dependencies(
   ${PROJECT_NAME}
   rclcpp
   ai_msgs
+  robot_pick_obj_msg
 )
 
 target_include_directories(robot_pick_obj_free PUBLIC

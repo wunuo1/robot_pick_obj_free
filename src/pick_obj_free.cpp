@@ -18,63 +18,150 @@
 #include <cmath>
 #include <numeric>
 
+
 PickObjFreeNode::PickObjFreeNode(const std::string& node_name,const rclcpp::NodeOptions& options)
   : rclcpp::Node(node_name, options) {
 
-  target_subscriber_ =
-    this->create_subscription<ai_msgs::msg::PerceptionTargets>(
-      "racing_obstacle_detection",
-      10,
-      std::bind(&PickObjFreeNode::subscription_callback_target,
-      this,
-      std::placeholders::_1));
+    this->declare_parameter<bool>("task_input", task_input_);
+    this->get_parameter<bool>("task_input", task_input_);
+
+    callback_group_subscriber_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+    auto sub_opt = rclcpp::SubscriptionOptions();
+    sub_opt.callback_group = callback_group_subscriber_;
+
+    callback_group_service_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+
+    if(task_input_ == true) {
+        task_server_ = this->create_service<robot_pick_obj_msg::srv::TaskExecution>(
+            "/task",
+            std::bind(&PickObjFreeNode::service_callback_task, this, std::placeholders::_1, std::placeholders::_2),
+            rmw_qos_profile_default, callback_group_service_);
+
+        detecting_ = false;
+        std::cout << "Waiting for request" << std::endl;
+    }
+
+
+    target_subscriber_ =
+        this->create_subscription<ai_msgs::msg::PerceptionTargets>(
+        "racing_obstacle_detection",
+        10,
+        std::bind(&PickObjFreeNode::subscription_callback_target,
+        this,
+        std::placeholders::_1), sub_opt);
+
+    mutex_ = std::make_shared<std::mutex>();
+    condition_variable_ = std::make_shared<std::condition_variable>();
     order_interpreter_ = std::make_shared<OrderInterpreter>();
-    arm_pose_solver_ = std::make_shared<ArmPoseSolver3Dof>(28, 60, 85);
+    arm_pose_solver_ = std::make_shared<ArmPoseSolver3Dof>(28, 60, 85, 137 + 5);
+    order_interpreter_->control_serial_servo(6, 500, 1000);
+    order_interpreter_->control_serial_servo(7, 500, 1000);
+    order_interpreter_->control_serial_servo(8, 350, 1000);
+    // order_interpreter_->control_PWM_servo(1, 1100, 200);
 }
 
 PickObjFreeNode::~PickObjFreeNode(){
     
 }
 void PickObjFreeNode::subscription_callback_target(const ai_msgs::msg::PerceptionTargets::SharedPtr targets_msg){
-    static bool successful = false;
+
+    if(task_input_ == true){
+        std::unique_lock<std::mutex> lock(*mutex_);
+        if(detecting_ == true){
+            target_process(targets_msg);
+        }
+    } else {
+        if(detecting_ == true){
+            target_process(targets_msg);
+        }
+    }
+}
+
+void PickObjFreeNode::service_callback_task(const robot_pick_obj_msg::srv::TaskExecution::Request::SharedPtr task_request,
+                            const robot_pick_obj_msg::srv::TaskExecution::Response::SharedPtr task_response){
+    if (target_values_.find(task_request->target_type) == target_values_.end()) {
+        std::cout << "target type is invalid: " << task_request->target_type << std::endl;
+        task_response->successful = false;
+    }
+    if (task_values_.find(task_request->task_type) == task_values_.end()) {
+        std::cout << "task type is invalid:  " << task_request->task_type << std::endl;
+        task_response->successful = false;
+    }
+    target_type_ = task_request->target_type;
+    task_type_ = task_request->task_type;
+    {
+        std::unique_lock<std::mutex> lock(*mutex_);
+        detecting_ = true;
+        condition_variable_->wait(lock);
+        task_response->successful = true;
+    }
+}
+
+
+void PickObjFreeNode::target_process(const ai_msgs::msg::PerceptionTargets::SharedPtr targets_msg){
     int center_x = 0;
     int center_y = 0;
-    if(successful == false){
-        for(const auto &target : targets_msg->targets){
-            if(target.type == "red_ball"){
-                if(target.rois[0].confidence > 0.5){
-                    center_x = target.rois[0].rect.x_offset + target.rois[0].rect.width / 2;
-                    center_y = target.rois[0].rect.y_offset + target.rois[0].rect.height / 2;
-                }
-            }
-        }
-        if((center_x != 0) || (center_y != 0)){
-            CenterCoordinate center_coordinate = {center_x, center_y};
-            centers_queue.push_back(center_coordinate);
-
-            if(centers_queue.size() == 5){
-                if(is_stable() == true){
-                    JointAngles result = arm_pose_solver_->pose_calculation(center_x, center_y);
-                    if(!std::isnan(result.theta3) && !std::isnan(result.theta2) && !std::isnan(result.theta1)){
-                        int joint_6_weight = 500 - ((result.theta3 * 180 / 3.1459) * 1000 / 240);
-                        int joint_7_weight = 500 - ((result.theta2  * 180 / 3.1459  - 90) *  1000 / 240);
-                        int joint_8_weight = 350 + ((result.theta1 * 180 / 3.1459) *  1000 / 240 );
-                        order_interpreter_->control_serial_servo(6, joint_6_weight, 2000);
-                        order_interpreter_->control_serial_servo(7, joint_7_weight, 2000);
-                        order_interpreter_->control_serial_servo(8, joint_8_weight, 2000);
-                        successful = true;
-                    } else {
-                        std::cout<<"Having nan in numbers"<<std::endl;
-                    }
-                } else {
-                    std::cout<<"Unstable detection"<<std::endl;
-                }
-                centers_queue.pop_front();
+    for(const auto &target : targets_msg->targets){
+        if(target.type == target_type_){
+            if(target.rois[0].confidence > 0.5){
+                center_x = target.rois[0].rect.x_offset + target.rois[0].rect.width / 2;
+                center_y = target.rois[0].rect.y_offset + target.rois[0].rect.height / 2;
             }
         }
     }
 
+    if((center_x != 0) || (center_y != 0)){
+        CenterCoordinate center_coordinate = {center_x, center_y};
+        centers_queue.push_back(center_coordinate);
+        if(centers_queue.size() == 5){
+            if(is_stable() == true){
+                if(task_type_ == "pick") {
+                    order_interpreter_->control_serial_servo(18, 800, 2000);
+                }
+                if(move_hand_to_target(center_x, center_y) == true){
+                    if(task_type_ == "pick") {
+                        order_interpreter_->control_serial_servo(18, 650, 2000);
+                    } else {
+                        order_interpreter_->control_serial_servo(18, 800, 1000);
+                    }
+                    order_interpreter_->control_serial_servo(8, 350, 1000);
+                    order_interpreter_->control_serial_servo(6, 500, 1000);
+                    order_interpreter_->control_serial_servo(7, 500, 1000);
+                    detecting_ = false;
+                    if(task_input_ == true) condition_variable_->notify_one();
+                }
+            } else {
+                std::cout<<"Unstable detection"<<std::endl;
+            }
+            centers_queue.pop_front();
+        }
+    } else {
+        std::cout<<"No target"<<std::endl;
+    }
+}
 
+
+bool PickObjFreeNode::move_hand_to_target(const int& center_x, const int& center_y){
+    int height = 30;
+    int increased_height = 5;
+    if(target_type_ == "base"){
+        increased_height = 50;
+        height = 10;
+    }
+    JointAngles result = arm_pose_solver_->pose_calculation(center_x, center_y, height, increased_height);
+    if(!std::isnan(result.theta3) && !std::isnan(result.theta2) && !std::isnan(result.theta1)){
+        int joint_6_weight = 500 - ((result.theta3 * 180 / 3.1459) * 1000 / 240);
+        int joint_7_weight = 500 - ((result.theta2  * 180 / 3.1459  - 90) *  1000 / 240);
+        int joint_8_weight = 350 + ((result.theta1 * 180 / 3.1459) *  1000 / 240 );
+        order_interpreter_->control_serial_servo(6, joint_6_weight, 2000);
+        order_interpreter_->control_serial_servo(7, joint_7_weight, 2000);
+        order_interpreter_->control_serial_servo(8, joint_8_weight, 2000);
+        return true;
+        // completed_ = true;
+    } else {
+        std::cout<<"Having nan in numbers"<<std::endl;
+        return false;
+    }
 }
 
 bool PickObjFreeNode::is_stable(){
@@ -108,7 +195,10 @@ int main(int argc, char* argv[]) {
 
   rclcpp::init(argc, argv);
 
-  rclcpp::spin(std::make_shared<PickObjFreeNode>("PickObjFreeNode"));
+  auto node = std::make_shared<PickObjFreeNode>("PickObjFreeNode");
+  rclcpp::executors::MultiThreadedExecutor executor;
+  executor.add_node(node);
+  executor.spin();
 
   rclcpp::shutdown();
 

@@ -17,12 +17,16 @@
 
 #include <vector>
 #include <deque>
+#include <unordered_set>
 
 #include "rclcpp/rclcpp.hpp"
+#include "std_msgs/msg/string.hpp"
 
 #include "order_interpreter.hpp"
 #include "arm_pose_solver.hpp"
+
 #include "ai_msgs/msg/perception_targets.hpp"
+#include "robot_pick_obj_msg/srv/task_execution.hpp"
 
 struct CenterCoordinate {
     int center_x, center_y;
@@ -36,13 +40,37 @@ public:
   ~PickObjFreeNode() override;
 private:
 
-    rclcpp::Subscription<ai_msgs::msg::PerceptionTargets>::SharedPtr target_subscriber_;
+    rclcpp::Subscription<ai_msgs::msg::PerceptionTargets>::SharedPtr target_subscriber_ = nullptr;
+    rclcpp::Service<robot_pick_obj_msg::srv::TaskExecution>::SharedPtr task_server_ = nullptr;
 
     void subscription_callback_target(const ai_msgs::msg::PerceptionTargets::SharedPtr targets_msg);
+    void service_callback_task(const robot_pick_obj_msg::srv::TaskExecution::Request::SharedPtr task_request,
+                                const robot_pick_obj_msg::srv::TaskExecution::Response::SharedPtr task_response);
+
+    void target_process(const ai_msgs::msg::PerceptionTargets::SharedPtr targets_msg);
+    bool move_hand_to_target(const int& center_x, const int& center_y);
     bool is_stable();
     std::deque<CenterCoordinate> centers_queue;
     std::shared_ptr<ArmPoseSolver3Dof> arm_pose_solver_;
     std::shared_ptr<OrderInterpreter> order_interpreter_;
+
+    bool task_input_ = false;
+    bool detecting_ = true;
+
+    std::string target_type_ = "red_ball";
+    std::string task_type_ = "pick";
+
+    std::shared_ptr<std::condition_variable> condition_variable_;
+    std::shared_ptr<std::mutex> mutex_;
+
+    std::unordered_set<std::string> target_values_ = {"red_ball", "green_ball", "blue_ball", "base"};
+    std::unordered_set<std::string> task_values_ = {"pick", "push"};
+
+    rclcpp::CallbackGroup::SharedPtr callback_group_subscriber_ = nullptr;
+    rclcpp::CallbackGroup::SharedPtr callback_group_service_ = nullptr;
+
+
+
 };
 
 

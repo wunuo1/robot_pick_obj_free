@@ -18,26 +18,28 @@ struct JointAngles {
 class ArmPoseSolver3Dof
 {
 public:
-    ArmPoseSolver3Dof(const int& l1, const int& l2, const int& l3);
+    ArmPoseSolver3Dof(const int& l1, const int& l2, const int& l3, const int& distance);
     ~ArmPoseSolver3Dof();
 
-    JointAngles pose_calculation(const int& x, const int& y);
+    JointAngles pose_calculation(const int& x, const int& y, const int& target_center_height, const int& increased_height);
     JointAngles inverse_kinematics(const ArmParams& params, double x, double y, double z);
 private:
     ArmParams arm_params;
+    int distance_;
 };
 
-ArmPoseSolver3Dof::ArmPoseSolver3Dof(const int& l1, const int& l2, const int& l3)
+ArmPoseSolver3Dof::ArmPoseSolver3Dof(const int& l1, const int& l2, const int& l3, const int& distance)
 {
     //机械臂的基座为L1
     arm_params = {l1, l2, l3};
+    distance_ = distance;
 }
 
 ArmPoseSolver3Dof::~ArmPoseSolver3Dof()
 {
 }
 
-JointAngles ArmPoseSolver3Dof::pose_calculation(const int& x, const int& y)
+JointAngles ArmPoseSolver3Dof::pose_calculation(const int& x, const int& y, const int& target_center_height, const int& increased_height = 0)
 {
     double head_angle = 0.785;
     double head_angle_comp = M_PI - head_angle;
@@ -45,7 +47,7 @@ JointAngles ArmPoseSolver3Dof::pose_calculation(const int& x, const int& y)
     double fy = 547.40127;
     double fx = 544.81663;
 
-    int h = 137 - 33;
+    int h = distance_ - target_center_height;
 
     double tan_b = (x - 320)/ fx;
     // double angel_rad_b = atan(tan_b);
@@ -75,7 +77,7 @@ JointAngles ArmPoseSolver3Dof::pose_calculation(const int& x, const int& y)
 
     // ArmParams params = {28, 60, 85};
 
-    JointAngles angles = inverse_kinematics(arm_params, result.x(), result.y(), result.z());
+    JointAngles angles = inverse_kinematics(arm_params, result.x(), result.y() - increased_height, result.z());
 
     std::cout << "6: " << 500 - ((angles.theta3 * 180 / 3.1459) * 1000 / 240) << std::endl;
     std::cout << "7: " << 500 - ((angles.theta2  * 180 / 3.1459  - 90) *  1000 / 240) << std::endl;
