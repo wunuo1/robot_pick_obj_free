@@ -49,13 +49,14 @@ JointAngles ArmPoseSolver3Dof::pose_calculation(const int& x, const int& y, cons
 
     int h = distance_ - target_center_height;
 
-    double tan_b = (x - 320)/ fx;
-    // double angel_rad_b = atan(tan_b);
-    double target_location_x = tan_b * (h / sin(head_angle));
+
     double tan_a = (y - 240)/ fy;
     double angel_rad_a = atan(tan_a);
     double target_location_y = sin(angel_rad_a) * h / sin(head_angle_comp - angel_rad_a);
     double target_location_z = target_location_y / tan(tan_a);
+
+    double tan_b = (x - 320)/ fx;
+    double target_location_x = tan_b * std::sqrt((target_location_y * target_location_y + target_location_z * target_location_z));
 
     Eigen::Vector3d v_3d(target_location_x, target_location_y, target_location_z);
 
@@ -78,10 +79,9 @@ JointAngles ArmPoseSolver3Dof::pose_calculation(const int& x, const int& y, cons
     // ArmParams params = {28, 60, 85};
 
     JointAngles angles = inverse_kinematics(arm_params, result.x(), result.y() - increased_height, result.z());
-
-    std::cout << "6: " << 500 - ((angles.theta3 * 180 / 3.1459) * 1000 / 240) << std::endl;
-    std::cout << "7: " << 500 - ((angles.theta2  * 180 / 3.1459  - 90) *  1000 / 240) << std::endl;
-    std::cout << "8: " << 350 + ((angles.theta1 * 180 / 3.1459) *  1000 / 240 ) << std::endl;
+    // std::cout << "6: " << 500 - ((angles.theta3 * 180 / 3.1459) * 1000 / 240) << std::endl;
+    // std::cout << "7: " << 500 - ((angles.theta2  * 180 / 3.1459  - 90) *  1000 / 240) << std::endl;
+    // std::cout << "8: " << 350 + ((angles.theta1 * 180 / 3.1459) *  1000 / 240 ) << std::endl;
     return angles;
 }
 

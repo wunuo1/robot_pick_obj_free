@@ -45,7 +45,7 @@ PickObjFreeNode::PickObjFreeNode(const std::string& node_name,const rclcpp::Node
     target_subscriber_ =
         this->create_subscription<ai_msgs::msg::PerceptionTargets>(
         "racing_obstacle_detection",
-        10,
+        1,
         std::bind(&PickObjFreeNode::subscription_callback_target,
         this,
         std::placeholders::_1), sub_opt);
@@ -53,9 +53,9 @@ PickObjFreeNode::PickObjFreeNode(const std::string& node_name,const rclcpp::Node
     mutex_ = std::make_shared<std::mutex>();
     condition_variable_ = std::make_shared<std::condition_variable>();
     order_interpreter_ = std::make_shared<OrderInterpreter>();
-    arm_pose_solver_ = std::make_shared<ArmPoseSolver3Dof>(28, 60, 85, 137 + 5);
-    order_interpreter_->control_serial_servo(6, 500, 1000);
+    arm_pose_solver_ = std::make_shared<ArmPoseSolver3Dof>(28, 60, 85, 137 + 8);
     order_interpreter_->control_serial_servo(7, 500, 1000);
+    order_interpreter_->control_serial_servo(6, 500, 1000);
     order_interpreter_->control_serial_servo(8, 350, 1000);
     // order_interpreter_->control_PWM_servo(1, 1100, 200);
 }
@@ -95,6 +95,7 @@ void PickObjFreeNode::service_callback_task(const robot_pick_obj_msg::srv::TaskE
         condition_variable_->wait(lock);
         task_response->successful = true;
     }
+    task_response->successful = true;
 }
 
 
@@ -109,17 +110,36 @@ void PickObjFreeNode::target_process(const ai_msgs::msg::PerceptionTargets::Shar
             }
         }
     }
-
+    std::cout<<"center_y______:"<<center_y<<std::endl;
     if((center_x != 0) || (center_y != 0)){
+        if(center_x > 300) {
+            order_interpreter_->control_serial_servo("right_move_hand_free");
+            return;
+        }
+        if(center_x < 50) {
+            order_interpreter_->control_serial_servo("left_move_hand_free");
+            return;
+        }
+        if(center_y < 320) {
+            order_interpreter_->control_serial_servo("go_forward_hand_free");
+            return;
+        }
+        if(center_y > 420) {
+            order_interpreter_->control_serial_servo("back_small_step_hand_free");
+            return;
+        }
         CenterCoordinate center_coordinate = {center_x, center_y};
         centers_queue.push_back(center_coordinate);
         if(centers_queue.size() == 5){
             if(is_stable() == true){
-                if(task_type_ == "pick") {
+                
+                if(task_type_ == "catch") {
                     order_interpreter_->control_serial_servo(18, 800, 2000);
                 }
+                std::cout<<"center_x: "<<center_x<<std::endl;
+                std::cout<<"center_y: "<<center_y<<std::endl;
                 if(move_hand_to_target(center_x, center_y) == true){
-                    if(task_type_ == "pick") {
+                    if(task_type_ == "catch") {
                         order_interpreter_->control_serial_servo(18, 650, 2000);
                     } else {
                         order_interpreter_->control_serial_servo(18, 800, 1000);
@@ -142,22 +162,21 @@ void PickObjFreeNode::target_process(const ai_msgs::msg::PerceptionTargets::Shar
 
 
 bool PickObjFreeNode::move_hand_to_target(const int& center_x, const int& center_y){
-    int height = 30;
+    int height = 20;
     int increased_height = 5;
     if(target_type_ == "base"){
         increased_height = 50;
-        height = 10;
+        height = 20;
     }
     JointAngles result = arm_pose_solver_->pose_calculation(center_x, center_y, height, increased_height);
     if(!std::isnan(result.theta3) && !std::isnan(result.theta2) && !std::isnan(result.theta1)){
         int joint_6_weight = 500 - ((result.theta3 * 180 / 3.1459) * 1000 / 240);
         int joint_7_weight = 500 - ((result.theta2  * 180 / 3.1459  - 90) *  1000 / 240);
         int joint_8_weight = 350 + ((result.theta1 * 180 / 3.1459) *  1000 / 240 );
-        order_interpreter_->control_serial_servo(6, joint_6_weight, 2000);
-        order_interpreter_->control_serial_servo(7, joint_7_weight, 2000);
+        order_interpreter_->control_serial_servo(6, joint_6_weight, 1000);
+        order_interpreter_->control_serial_servo(7, joint_7_weight, 1000);
         order_interpreter_->control_serial_servo(8, joint_8_weight, 2000);
         return true;
-        // completed_ = true;
     } else {
         std::cout<<"Having nan in numbers"<<std::endl;
         return false;

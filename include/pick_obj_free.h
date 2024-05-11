@@ -58,17 +58,16 @@ private:
     bool detecting_ = true;
 
     std::string target_type_ = "red_ball";
-    std::string task_type_ = "pick";
+    std::string task_type_ = "catch";
 
     std::shared_ptr<std::condition_variable> condition_variable_;
     std::shared_ptr<std::mutex> mutex_;
 
     std::unordered_set<std::string> target_values_ = {"red_ball", "green_ball", "blue_ball", "base"};
-    std::unordered_set<std::string> task_values_ = {"pick", "push"};
+    std::unordered_set<std::string> task_values_ = {"catch", "put"};
 
     rclcpp::CallbackGroup::SharedPtr callback_group_subscriber_ = nullptr;
     rclcpp::CallbackGroup::SharedPtr callback_group_service_ = nullptr;
-
 
 
 };
